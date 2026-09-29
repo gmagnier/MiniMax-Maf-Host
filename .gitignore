@@ -1,0 +1,38 @@
+## .NET build artifacts
+bin/
+obj/
+out/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## VS / Rider / VSCode
+.vs/
+.vscode/
+.idea/
+*.swp
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Test results
+TestResults/
+coverage*.xml
+*.coverage
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Logs
+*.log
+
+## ASP.NET Core
+appsettings.*.Local.json
+secrets.json
