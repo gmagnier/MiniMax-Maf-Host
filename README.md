@@ -24,16 +24,14 @@ The MiniMax API is OpenAI-compatible, so we wire it up with the standard `OpenAI
 ```bash
 cd MafMiniMaxAgent
 
-# Store the secret OUTSIDE the repo (encrypted, per-user)
-dotnet user-secrets set "MiniMax:ApiKey"    "<your-minimax-api-key>"
-dotnet user-secrets set "MiniMax:Endpoint"  "https://api.minimaxi.chat/v1"
-dotnet user-secrets set "MiniMax:ModelId"   "MiniMax-M3"
-
-# Verify
-dotnet user-secrets list
+# Copy the template and fill in your MiniMax API key.
+cp .env.example .env
+# edit .env and set MiniMax__ApiKey=<your-key>
 ```
 
-`appsettings.json` carries the non-secret defaults (`Endpoint`, `ModelId`). The key is **never** read from source-controlled files.
+`appsettings.json` carries the non-secret defaults (`Endpoint`, `ModelId`). The key is **never** read from source-controlled files — `.env` is loaded at process start, and `.env` is gitignored.
+
+> Prefer `dotnet user-secrets`? It still works as a fallback — set `MiniMax:ApiKey` there and it will be picked up the same way (env-var form `MiniMax__ApiKey` overrides `.env`).
 
 ---
 
@@ -74,7 +72,7 @@ All keys live under the `MiniMax` section (env-var form: `MiniMax__ApiKey`, etc.
 
 | Key               | Default                          | Notes                                       |
 | ----------------- | -------------------------------- | ------------------------------------------- |
-| `MiniMax:ApiKey`  | *(required)*                     | from user-secrets / env var                 |
+| `MiniMax:ApiKey`  | *(required)*                     | from `.env` / shell env / user-secrets      |
 | `MiniMax:Endpoint`| `https://api.minimaxi.chat/v1`   | any OpenAI-compatible base URL              |
 | `MiniMax:ModelId` | `MiniMax-M3`                     | e.g. `MiniMax-M3`, `MiniMax-M2`, etc.       |
 

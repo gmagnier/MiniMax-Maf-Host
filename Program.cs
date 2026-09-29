@@ -1,10 +1,18 @@
 using System.ClientModel;
+using DotNetEnv;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Microsoft.Extensions.AI;
 using OpenAI;
+
+// ---------------------------------------------------------------------------
+// Load .env BEFORE building configuration so ASP.NET Core's default
+// EnvironmentVariablesConfigurationProvider can pick up MiniMax__* values.
+// Existing real process env vars always win over .env entries.
+// Safe to call when no .env file is present (Env.Load is a no-op then).
+Env.Load();
 
 // ---------------------------------------------------------------------------
 // MafMiniMaxAgent
