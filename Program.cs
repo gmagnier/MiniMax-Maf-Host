@@ -1,4 +1,6 @@
 using System.ClientModel;
+using System.ComponentModel;
+using System.IO;
 using DotNetEnv;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.DevUI;
@@ -8,92 +10,184 @@ using Microsoft.Extensions.AI;
 using OpenAI;
 
 // ---------------------------------------------------------------------------
-// Load .env BEFORE building configuration so ASP.NET Core's default
-// EnvironmentVariablesConfigurationProvider can pick up MiniMax__* values.
-// Existing real process env vars always win over .env entries.
-// Safe to call when no .env file is present (Env.Load is a no-op then).
+// Load .env BEFORE building configuration
+// ---------------------------------------------------------------------------
 Env.Load();
 
 // ---------------------------------------------------------------------------
-// MafMiniMaxAgent
-// ASP.NET Core host that exposes a Microsoft Agent Framework (MAF) agent
-// powered by the MiniMax-M3 model (OpenAI-compatible endpoint).
+// MafMiniMaxAgent — POC multi-agent
 //
-//   Dev  -> DevUI dashboard        : GET  /devui   (also /v1/* behind the scenes)
-//   Prod -> AG-UI protocol server  : POST /ag-ui   (RunAgentInput -> SSE events)
-//
-// All sensitive configuration is read from .NET user-secrets / env vars,
-// never from appsettings.json committed to the repo.
+// Two agents in this iteration:
+//   - maf-lead   : orchestrator. Plain chat. Receives user request.
+//   - maf-spec   : OpenSpec specialist. Wraps the `openspec` CLI as a tool.
 // ---------------------------------------------------------------------------
 
-const string AgentName = "maf-agent";
-const string AgentInstructions =
-    "You are MafMiniMaxAgent, a concise and helpful assistant powered by MiniMax-M3. " +
-    "Answer in the user's language. If you are unsure, say so.";
+const string LeadName = "maf-lead";
+const string SpecName = "maf-spec";
+
+const string LeadInstructions =
+    "You are maf-lead, the orchestrator of a multi-agent dev team. " +
+    "In this POC you do not yet dispatch to other agents — answer the user directly, " +
+    "in their language, concisely. If they ask about OpenSpec specs/changes, " +
+    "suggest they address maf-spec explicitly (it is wired separately).";
+
+const string SpecInstructions =
+    "You are maf-spec, the OpenSpec specialist. " +
+    "Use the open_spec tool to inspect and scaffold the project's openspec/ folder. " +
+    "Rules: " +
+    "  - List current state before proposing changes. " +
+    "  - Use kebab-case for change names. " +
+    "  - Specs MUST use the SHALL/SHOULD/MAY normative vocabulary. " +
+    "  - Capability spec files under openspec/specs/<capability>/spec.md are source of truth: prefer the tool, but you may also hand-edit them if needed. " +
+    "  - Change metadata files (.openspec.yaml, README.md) and proposals (proposal.md, design.md, tasks.md) may be hand-edited when the openspec CLI doesn't expose the needed action (e.g. setting skip_specs: true in .openspec.yaml). Always run 'validate --changes' after such edits. " +
+    "  - Match the user's language. " +
+    "  - Keep responses under 30 lines unless quoting.";
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ---- Configuration --------------------------------------------------------
 var apiKey = builder.Configuration["MiniMax:ApiKey"]
-    ?? throw new InvalidOperationException(
-        "MiniMax:ApiKey is not configured. " +
-        "Set it with: dotnet user-secrets set \"MiniMax:ApiKey\" \"<your-key>\"");
-
+    ?? throw new InvalidOperationException("MiniMax:ApiKey missing");
 var endpoint = builder.Configuration["MiniMax:Endpoint"] ?? "https://api.minimaxi.chat/v1";
 var modelId = builder.Configuration["MiniMax:ModelId"] ?? "MiniMax-M3";
 
-// ---- Chat client (OpenAI-compatible, pointing at MiniMax) -----------------
 builder.Services.AddChatClient(_ =>
+    new OpenAIClient(new ApiKeyCredential(apiKey),
+                     new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
+        .GetChatClient(modelId)
+        .AsIChatClient());
+
+// --- Tools -----------------------------------------------------------------
+// open_spec : wraps the openspec CLI (read-only by default for the agent)
+static string OpenSpecCli([Description("Args passed to the openspec CLI. " +
+    "Examples: 'list', 'list --specs', 'view', 'change show <name>', 'validate'.")] string args)
 {
-    var openAIClient = new OpenAIClient(
-        new ApiKeyCredential(apiKey),
-        new OpenAIClientOptions { Endpoint = new Uri(endpoint) });
+    try
+    {
+        var openspecBin = "/home/gmagnier/.hermes/cache/scratch/bin/openspec";
+        if (!System.IO.File.Exists(openspecBin))
+            return "ERROR: openspec CLI not found at " + openspecBin;
 
-    return openAIClient.GetChatClient(modelId).AsIChatClient();
-});
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = openspecBin,
+            Arguments = args,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Directory.GetCurrentDirectory(),
+        };
 
-// ---- Agent registration ---------------------------------------------------
-// AddAIAgent(name, instructions) registers a keyed AIAgent in DI
-// and also wires it up to the chat client registered above.
-builder.AddAIAgent(AgentName, AgentInstructions);
-
-// ---- DevUI (development only) --------------------------------------------
-if (builder.Environment.IsDevelopment())
-{
-    // DevUI talks to the agent through these OpenAI-compatible endpoints.
-    builder.AddOpenAIResponses();
-    builder.AddOpenAIConversations();
-
-    // Serves the in-browser DevUI dashboard at /devui.
-    builder.AddDevUI();
+        using var proc = System.Diagnostics.Process.Start(psi)!;
+        if (!proc.WaitForExit(15_000)) { proc.Kill(); return "ERROR: openspec CLI timed out after 15s"; }
+        var stdout = proc.StandardOutput.ReadToEnd();
+        var stderr = proc.StandardError.ReadToEnd();
+        return proc.ExitCode == 0
+            ? (string.IsNullOrWhiteSpace(stdout) ? "(no output)" : stdout.Trim())
+            : $"EXIT {proc.ExitCode}\nSTDOUT: {stdout}\nSTDERR: {stderr}";
+    }
+    catch (Exception ex) { return "ERROR: " + ex.Message; }
 }
 
-// ---- AG-UI server (always available, used by frontends in prod) -----------
+// write_change_file : hand-edit a file inside openspec/<relative>/.
+// SCOPED: refuses any path that escapes openspec/ (path-traversal guard).
+static string WriteChangeFile(
+    [Description("Relative path under openspec/, e.g. 'changes/my-change/.openspec.yaml' or 'changes/my-change/proposal.md'. MUST start with 'changes/' or 'specs/'. Must NOT start with '/' or contain '..'.")] string relativePath,
+    [Description("New file contents (overwrites the file).")] string content)
+{
+    try
+    {
+        // Resolve project root = CWD (the host is launched from the repo root)
+        var projectRoot = Directory.GetCurrentDirectory();
+        var openspecRoot = Path.GetFullPath(Path.Combine(projectRoot, "openspec"));
+        var target = Path.GetFullPath(Path.Combine(openspecRoot, relativePath));
+
+        // Path-traversal guard
+        if (!target.StartsWith(openspecRoot + Path.DirectorySeparatorChar) && target != openspecRoot)
+            return $"ERROR: path '{relativePath}' escapes openspec/ — refused";
+
+        // Refuse to write into openspec/specs/<cap>/spec.md (capability specs are source of truth,
+        // managed only via openspec CLI or human curation, not by this tool)
+        var relToOpenspec = Path.GetRelativePath(openspecRoot, target);
+        var parts = relToOpenspec.Split(Path.DirectorySeparatorChar);
+        if (parts.Length >= 2 && parts[0] == "specs")
+            return $"ERROR: writing to openspec/specs/{parts[1]}/spec.md is not allowed via this tool. Capability specs must be edited directly or via the openspec CLI.";
+
+        // Audit log
+        var auditLog = "/home/gmagnier/.hermes/cache/scratch/maf-logs/spec-edits.log";
+        Directory.CreateDirectory(Path.GetDirectoryName(auditLog)!);
+        File.AppendAllText(auditLog,
+            $"[{DateTime.UtcNow:O}] maf-spec wrote {relToOpenspec} ({content.Length} bytes)\n");
+
+        // Make sure parent dir exists
+        var parent = Path.GetDirectoryName(target)!;
+        Directory.CreateDirectory(parent);
+
+        File.WriteAllText(target, content);
+        return $"OK: wrote {relToOpenspec} ({content.Length} bytes)";
+    }
+    catch (Exception ex) { return "ERROR: " + ex.Message; }
+}
+
+// read_change_file : read any file under openspec/ (for context)
+static string ReadChangeFile(
+    [Description("Relative path under openspec/, e.g. 'specs/leads/spec.md' or 'changes/init-aspnet-core-rest-api-base/proposal.md'.")] string relativePath)
+{
+    try
+    {
+        var projectRoot = Directory.GetCurrentDirectory();
+        var openspecRoot = Path.GetFullPath(Path.Combine(projectRoot, "openspec"));
+        var target = Path.GetFullPath(Path.Combine(openspecRoot, relativePath));
+
+        if (!target.StartsWith(openspecRoot + Path.DirectorySeparatorChar) && target != openspecRoot)
+            return $"ERROR: path '{relativePath}' escapes openspec/ — refused";
+
+        if (!File.Exists(target)) return $"ERROR: file not found: {relativePath}";
+        return File.ReadAllText(target);
+    }
+    catch (Exception ex) { return "ERROR: " + ex.Message; }
+}
+
+// --- Register agents -------------------------------------------------------
+builder.AddAIAgent(LeadName, LeadInstructions);
+
+builder.AddAIAgent(SpecName, SpecInstructions)
+       .WithAITool(AIFunctionFactory.Create(OpenSpecCli, name: "open_spec"))
+       .WithAITool(AIFunctionFactory.Create(WriteChangeFile, name: "write_change_file"))
+       .WithAITool(AIFunctionFactory.Create(ReadChangeFile, name: "read_change_file"));
+
+// --- DevUI (development only) ---------------------------------------------
+if (builder.Environment.IsDevelopment())
+{
+    builder.AddOpenAIResponses();
+    builder.AddOpenAIConversations();
+    builder.AddDevUI(o => o.AllowRemoteAccess = true);
+}
+
 builder.Services.AddAGUIServer();
 
 var app = builder.Build();
 
-// ---- Map endpoints --------------------------------------------------------
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenAIResponses();
     app.MapOpenAIConversations();
-    app.MapDevUI();   // /devui
+    app.MapDevUI();
 }
 
-// Resolve the agent registered by AddAIAgent(AgentName, ...) for the AG-UI route.
-var aguiAgent = app.Services.GetRequiredKeyedService<AIAgent>(AgentName);
-app.MapAGUIServer("/ag-ui", aguiAgent);
+// AG-UI exposes maf-lead by default; maf-spec reachable via /ag-ui/{name} once we add it
+var leadAgent = app.Services.GetRequiredKeyedService<AIAgent>(LeadName);
+app.MapAGUIServer("/ag-ui", leadAgent);
 
-// Friendly landing page so `dotnet run` shows something useful.
 app.MapGet("/", () => Results.Json(new
 {
-    name = "MafMiniMaxAgent",
+    name = "MafMiniMaxAgent (POC multi-agent)",
     model = modelId,
+    agents = new[] { LeadName, SpecName },
     endpoints = new
     {
         devui = app.Environment.IsDevelopment() ? "/devui" : null,
-        agui  = "/ag-ui",
+        agui = "/ag-ui",
     },
 }));
 

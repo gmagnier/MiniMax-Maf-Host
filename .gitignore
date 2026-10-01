@@ -6,6 +6,12 @@
 # dotenv files
 .env
 
+# Local backup of Program.cs (kept alongside Program.cs during multi-agent POC work)
+Program.cs.original
+
+# Local runtime logs and audit logs (kept outside the repo for privacy)
+maf-logs/
+
 # User-specific files
 *.rsuser
 *.suo
