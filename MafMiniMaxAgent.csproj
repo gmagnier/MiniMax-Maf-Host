@@ -9,13 +9,8 @@
     <!-- Treat warnings as errors so analyzer violations break the build.
          Loosen per-rule in .editorconfig if a rule is too noisy. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- StyleCop is intentionally noisy out of the box; suppress rules
-         selectively in .editorconfig as needed (e.g. SA0001, SA1633, SA1652).
-         Note: severity = none for dotnet_diagnostic.* rules works; for SA*
-         analyzers we use #pragma warning disable SA1xxx.
-         SA1201, SA1202, SA1214, SA1215 are also added to NoWarn below to
-         prevent StyleCop 1.1.118 from crashing (KeyNotFoundException on
-         RecordDeclaration) before the suppression can apply. -->
+    <!-- StyleCop removed: see comment in <ItemGroup> below. NoWarn kept
+         defensive in case a transient dependency still ships SA* analyzers. -->
     <NoWarn>SA0001;SA1201;SA1202;SA1214;SA1215;IDE0005</NoWarn>
 
     <!-- All analyzers run as part of build. -->
@@ -56,7 +51,15 @@
     <GlobalPackageReference Include="Meziantou.Analyzer" Version="3.0.290" />
     <!-- BannedApiAnalyzers 5.6.0 requires Roslyn 4.12 (shipped in .NET 9+). -->
     <GlobalPackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" />
-    <GlobalPackageReference Include="StyleCop.Analyzers" Version="1.1.118" />
+    <!-- AD0001 workaround at RUNTIME: StyleCop.Analyzers 1.1.118 crashes the
+         .NET 10 app at startup (KeyNotFoundException on 'RecordDeclaration').
+         The MSBuild <NoWarn> suppresses the crash during compilation, but
+         the analyzer DLL is still loaded by Roslyn in-proc at first request
+         and crashes the host. Remove StyleCop entirely until a version
+         fixes the bug.
+         The remaining analyzers (Sonar, Meziantou, Roslynator, BannedApi,
+         Nullable, Exception) cover the same style/correctness ground. -->
+    <!--<GlobalPackageReference Include="StyleCop.Analyzers" Version="1.1.118" />-->
     <GlobalPackageReference Include="Roslynator.Analyzers" Version="5.0.0" />
     <GlobalPackageReference Include="SmartanAlyzers.ExceptionAnalyzer" Version="1.0.10" />
   </ItemGroup>

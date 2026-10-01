@@ -224,5 +224,7 @@ app.MapGet("/", () => Results.Json(new
     },
 }));
 
-// Top-level statements can't await directly; suppress CS1998 by storing the task.
-_ = app.RunAsync();
+// Top-level statements support async directly. Awaiting keeps the Main
+// thread alive until the host stops; using `_ =` would exit immediately
+// (exit code 0) and the listener would disappear.
+await app.RunAsync();
