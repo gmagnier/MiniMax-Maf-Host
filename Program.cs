@@ -26,6 +26,7 @@ Env.Load();
 
 const string LeadName = "maf-lead";
 const string SpecName = "maf-spec";
+const string CoderName = "maf-coder";
 
 const string LeadInstructions =
     "You are maf-lead, the orchestrator of a multi-agent dev team. " +
@@ -45,6 +46,24 @@ const string SpecInstructions =
     "  - For kanban work (creating or moving tickets, listing boards/columns/tickets), use the mcp_list_boards, mcp_list_tickets, mcp_create_ticket, mcp_move_ticket tools. They delegate to the agent-dashboard MCP server so the UI sees the same state. " +
     "  - Match the user's language. " +
     "  - Keep responses under 30 lines unless quoting.";
+
+const string CoderInstructions =
+    "You are maf-coder, a code implementation agent. " +
+    "Given an OpenSpec change or a clear coding task, you read the relevant files, " +
+    "make targeted edits, and verify with builds and tests. " +
+    "Tools you have: " +
+    "  - read_file, write_file, apply_patch (scoped to openspec/, Tools/, README.md, AGENTS.md) " +
+    "  - shell_command (allowlist: dotnet, git, gh, node, npx; destructive git ops blocked) " +
+    "  - mcp_list_changes, mcp_validate_changes, mcp_list_pull_requests (MCP tools) " +
+    "Rules: " +
+    "  - Always read a file before editing it. " +
+    "  - Prefer apply_patch for in-place edits to existing files (it requires the match to occur exactly once — that's the safety net). " +
+    "  - Use write_file only for genuinely new files or full rewrites. " +
+    "  - After any code change, run `dotnet build` and fix the errors before considering the task done. " +
+    "  - Commit early, commit often: use `git add` and `git commit -m '...'` freely; for pushing branches and creating PRs use `gh pr create` (the shell tool blocks `git push` and `git checkout` on purpose). " +
+    "  - When the task fits an OpenSpec change, read its tasks.md and check off items there too. " +
+    "  - Match the user's language. " +
+    "  - Keep responses under 30 lines unless quoting code.";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -183,6 +202,15 @@ builder.AddAIAgent(SpecName, SpecInstructions)
        .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpSaveChatMessageAsync, name: "mcp_chat_save_message"))
        .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpCreateChatThreadAsync, name: "mcp_chat_create_thread"));
 
+builder.AddAIAgent(CoderName, CoderInstructions)
+       .WithAITool(AIFunctionFactory.Create(MafCoderTools.ReadFile, name: "read_file"))
+       .WithAITool(AIFunctionFactory.Create(MafCoderTools.WriteFile, name: "write_file"))
+       .WithAITool(AIFunctionFactory.Create(MafCoderTools.ApplyPatch, name: "apply_patch"))
+       .WithAITool(AIFunctionFactory.Create(MafCoderTools.ShellCommandAsync, name: "shell_command"))
+       .WithAITool(AIFunctionFactory.Create(MafCoderMcpTools.McpListChangesAsync, name: "mcp_list_changes"))
+       .WithAITool(AIFunctionFactory.Create(MafCoderMcpTools.McpValidateChangesAsync, name: "mcp_validate_changes"))
+       .WithAITool(AIFunctionFactory.Create(MafCoderMcpTools.McpListPullRequestsAsync, name: "mcp_list_pull_requests"));
+
 // --- DevUI (development only) ---------------------------------------------
 if (builder.Environment.IsDevelopment())
 {
@@ -223,6 +251,10 @@ app.MapAGUIServer("/ag-ui", leadAgent);
 var specAgent = app.Services.GetRequiredKeyedService<AIAgent>(SpecName);
 app.MapAGUIServer("/ag-ui/spec", specAgent);
 
+// maf-coder: same idea, but coder is mostly driven from DevUI for now.
+var coderAgent = app.Services.GetRequiredKeyedService<AIAgent>(CoderName);
+app.MapAGUIServer("/ag-ui/coder", coderAgent);
+
 // MCP server at /mcp — picked up from MapMcp() (provided by WithHttpTransport).
 app.MapMcp("/mcp");
 
@@ -230,12 +262,13 @@ app.MapGet("/", () => Results.Json(new
 {
     name = "MafMiniMaxAgent (POC multi-agent)",
     model = modelId,
-    agents = new[] { LeadName, SpecName },
+    agents = new[] { LeadName, SpecName, CoderName },
     endpoints = new
     {
         devui = app.Environment.IsDevelopment() ? "/devui" : null,
         agui = "/ag-ui",
         aguiSpec = "/ag-ui/spec",
+        aguiCoder = "/ag-ui/coder",
     },
 }));
 
