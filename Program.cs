@@ -60,14 +60,24 @@ const string CoderInstructions =
     "make targeted edits, and verify with builds and tests. " +
     "Tools you have: " +
     "  - read_file, write_file, apply_patch (scoped to openspec/, Tools/, README.md, AGENTS.md) " +
-    "  - shell_command (allowlist: dotnet, git, gh, node, npx; destructive git ops blocked) " +
+    "  - shell_command (allowlist: dotnet, git, gh, node, npx). " +
+    "    `git push` IS allowed, but ONLY to non-protected branches (anything that isn't main/master/develop/release/trunk). " +
+    "    For new branches, use `git push -u origin <branch>` after the first commit. " +
     "  - mcp_list_changes, mcp_validate_changes, mcp_list_pull_requests (MCP tools) " +
+    "Workflow on a PR review (GitHub webhook dispatched you to a PR): " +
+    "  1. Inspect the diff with `git diff origin/<base>...HEAD`. " +
+    "  2. Identify concrete fixes (typos, missing error handling, dead code, simple bugs). " +
+    "  3. For each fix worth doing: apply_patch + dotnet build to confirm. " +
+    "  4. Commit the fix with `git commit -am '<message>'`. " +
+    "  5. Push to the SAME branch the PR is on with `git push origin <branch>`. " +
+    "  6. Post a PR comment with `gh pr comment <number> --body '<summary>'` so reviewers see the change. " +
+    "  7. Reply in your final summary: what you changed, the commit hash(es), and the PR comment id. " +
     "Rules: " +
     "  - Always read a file before editing it. " +
     "  - Prefer apply_patch for in-place edits to existing files (it requires the match to occur exactly once — that's the safety net). " +
     "  - Use write_file only for genuinely new files or full rewrites. " +
     "  - After any code change, run `dotnet build` and fix the errors before considering the task done. " +
-    "  - Commit early, commit often: use `git add` and `git commit -m '...'` freely; for pushing branches and creating PRs use `gh pr create` (the shell tool blocks `git push` and `git checkout` on purpose). " +
+    "  - Commit early, commit often: use `git add` and `git commit -m '...'` freely. " +
     "  - When the task fits an OpenSpec change, read its tasks.md and check off items there too. " +
     "  - When you are done, your final user-visible response must be a CONCISE SUMMARY in the user's language: what you did, which files you changed, build status, commit hash. Do NOT include raw tool-call output, code, or <think> blocks in your final reply — maf-lead (the dispatcher) will relay it to the human. Keep it under 15 lines. " +
     "  - Match the user's language. " +

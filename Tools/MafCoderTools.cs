@@ -190,9 +190,10 @@ public static class MafCoderTools
     private static readonly HashSet<string> BlockedGitSubcommands = new(StringComparer.Ordinal)
     {
         // Destructive git ops are NOT allowed via this tool.
-        "reset", "checkout", "clean", "push",
+        "reset", "checkout", "clean",
         "branch",
         "rebase", "merge",
+        // `push` is handled separately: only allowed to non-protected branches.
     };
 
     /// <summary>
@@ -228,6 +229,11 @@ public static class MafCoderTools
         }
     }
 
+    private static readonly HashSet<string> ProtectedBranches = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "main", "master", "develop", "release", "trunk",
+    };
+
     private static string? CheckCommandAllowed(string command)
     {
         var firstSpace = command.IndexOf(' ');
@@ -239,11 +245,47 @@ public static class MafCoderTools
         if (string.Equals(exeName, "git", StringComparison.Ordinal) && firstSpace >= 0)
         {
             var restTrimmed = command[(firstSpace + 1)..].TrimStart();
-            var gitSubcommand = restTrimmed.Split(' ', 2)[0];
+            var parts = restTrimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var gitSubcommand = parts[0];
+
             if (BlockedGitSubcommands.Contains(gitSubcommand))
-                return $"ERROR: git {gitSubcommand} is blocked. Use gh pr create for pushing, or run destructive ops manually.";
+            {
+                return $"ERROR: git {gitSubcommand} is blocked. Use gh pr create for new branches, or run destructive ops manually.";
+            }
+
+            // `git push` is allowed ONLY when targeting a non-protected branch.
+            if (string.Equals(gitSubcommand, "push", StringComparison.Ordinal) && !IsPushToSafeBranch(parts))
+            {
+                return $"ERROR: git push to a protected branch is blocked. Push to a feature branch (anything other than {string.Join(", ", ProtectedBranches)}).";
+            }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Decide whether `git push <args>` targets a non-protected branch.
+    /// We accept any destination ref whose leaf segment is not a protected
+    /// branch. If we cannot identify a destination, we err on the side of
+    /// refusal.
+    /// </summary>
+    private static bool IsPushToSafeBranch(string[] args)
+    {
+        // args[0] is "push". Walk the rest; skip options (starting with '-')
+        // and refspecs (containing ':' on the left half, e.g. local:remote).
+        string? destRef = null;
+        for (int i = 1; i < args.Length; i++)
+        {
+            var a = args[i];
+            if (a.StartsWith('-')) continue;
+            // refspec "local:remote" — the local side is the source, not a destination
+            if (a.Contains(':')) continue;
+            destRef = a;
+            break;
+        }
+        if (string.IsNullOrEmpty(destRef)) return false;
+        // The ref can be "origin/feature/x" or "refs/heads/feature/x" or just "feature/x".
+        var leaf = destRef.Split('/')[^1];
+        return !ProtectedBranches.Contains(leaf);
     }
 
     private static string ResolveWorkdir(string? cwdRelative)
