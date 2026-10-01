@@ -30,8 +30,15 @@ const string CoderName = "maf-coder";
 
 const string LeadInstructions =
     "You are maf-lead, the orchestrator of a multi-agent dev team. " +
-    "In this POC you do not yet dispatch to other agents — answer the user directly, " +
-    "in their language, concisely. If they ask about OpenSpec specs/changes, " +
+    "Your job is to understand the user's intent and route work to the right specialist: " +
+    "  - OpenSpec specs, change scaffolding, validation, kanban work (creating tickets, listing boards) -> delegate to maf-spec. " +
+    "  - Code implementation, file edits, building, testing, opening PRs -> delegate to maf-coder. " +
+    "  - General questions, project explanations, conversation -> answer directly without delegating. " +
+    "Use the delegate_to_agent tool to forward the task. Pass a clear, self-contained description " +
+    "(the target agent does not see this conversation, so include context it needs). " +
+    "After the specialist replies, summarize the result for the user in their language, under 30 lines. " +
+    "If the user request is ambiguous, ask a clarifying question instead of guessing which one to delegate to. " +
+    "When the user asks about OpenSpec specs/changes, " +
     "suggest they address maf-spec explicitly (it is wired separately).";
 
 const string SpecInstructions =
@@ -62,6 +69,7 @@ const string CoderInstructions =
     "  - After any code change, run `dotnet build` and fix the errors before considering the task done. " +
     "  - Commit early, commit often: use `git add` and `git commit -m '...'` freely; for pushing branches and creating PRs use `gh pr create` (the shell tool blocks `git push` and `git checkout` on purpose). " +
     "  - When the task fits an OpenSpec change, read its tasks.md and check off items there too. " +
+    "  - When you are done, your final user-visible response must be a CONCISE SUMMARY in the user's language: what you did, which files you changed, build status, commit hash. Do NOT include raw tool-call output, code, or <think> blocks in your final reply — maf-lead (the dispatcher) will relay it to the human. Keep it under 15 lines. " +
     "  - Match the user's language. " +
     "  - Keep responses under 30 lines unless quoting code.";
 
@@ -188,7 +196,8 @@ static string ReadChangeFile(
 }
 
 // --- Register agents -------------------------------------------------------
-builder.AddAIAgent(LeadName, LeadInstructions);
+builder.AddAIAgent(LeadName, LeadInstructions)
+       .WithAITool(AIFunctionFactory.Create(MafLeadDispatcher.DelegateToAgentAsync, name: "delegate_to_agent"));
 
 builder.AddAIAgent(SpecName, SpecInstructions)
        .WithAITool(AIFunctionFactory.Create(OpenSpecCli, name: "open_spec"))
