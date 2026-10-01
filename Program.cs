@@ -7,6 +7,7 @@ using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Microsoft.Extensions.AI;
+using ModelContextProtocol.Server;
 using OpenAI;
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,17 @@ builder.Services.AddChatClient(_ =>
                      new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
         .GetChatClient(modelId)
         .AsIChatClient());
+
+// HttpClientFactory for tools that call the dashboard API (and for MCP tools).
+builder.Services.AddHttpClient("dashboard", (sp, client) =>
+{
+    // The dashboard URL is the same as the AG-UI host (different path).
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var aguiBase = cfg["MiniMax:Endpoint"]; // unused, just to ensure config is loaded
+    var dashBase = Environment.GetEnvironmentVariable("DASHBOARD_BASE_URL") ?? "http://127.0.0.1:3001";
+    client.BaseAddress = new Uri(dashBase);
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 // --- Tools -----------------------------------------------------------------
 // open_spec : wraps the openspec CLI (read-only by default for the agent)
@@ -166,6 +178,18 @@ if (builder.Environment.IsDevelopment())
 
 builder.Services.AddAGUIServer();
 
+// MCP server: streamable HTTP transport at /mcp, picking up DashboardTools.
+// Other tools (open_spec, write_change_file, read_change_file) stay MAF-native
+// because they operate on local files; the MCP layer delegates to the dashboard
+// over HTTP for the things only the dashboard owns (kanban state).
+builder.Services
+    .AddMcpServer(options =>
+    {
+        options.ServerInfo = new() { Name = "agent-dashboard-mcp", Version = "0.1.0" };
+    })
+    .WithHttpTransport()
+    .WithToolsFromAssembly();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -175,9 +199,12 @@ if (app.Environment.IsDevelopment())
     app.MapDevUI();
 }
 
-// AG-UI exposes maf-lead by default; maf-spec reachable via /ag-ui/{name} once we add it
+// maf-lead exposed via AG-UI for interactive testing
 var leadAgent = app.Services.GetRequiredKeyedService<AIAgent>(LeadName);
 app.MapAGUIServer("/ag-ui", leadAgent);
+
+// MCP server at /mcp — picked up from MapMcp() (provided by WithHttpTransport).
+app.MapMcp("/mcp");
 
 app.MapGet("/", () => Results.Json(new
 {
