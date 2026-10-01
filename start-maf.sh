@@ -58,9 +58,19 @@ case "$cmd" in
     echo
     echo "Waiting up to 90s for ports to listen..."
     for i in $(seq 1 90); do
-      dev_ok=$([[ $wait_dev -eq 1 ]] && ss -ltn 2>/dev/null | grep -c ":$DEV_PORT " || echo 1)
-      prod_ok=$([[ $wait_prod -eq 1 ]] && ss -ltn 2>/dev/null | grep -c ":$PROD_PORT " || echo 1)
-      if [[ "$dev_ok" -ge 1 && "$prod_ok" -ge 1 ]]; then
+      # Count listening sockets on each port. When we are not waiting for a
+      # given port, treat it as already OK (1).
+      if [[ $wait_dev -eq 1 ]]; then
+        dev_ok=$(ss -ltn 2>/dev/null | grep -c ":$DEV_PORT ")
+      else
+        dev_ok=1
+      fi
+      if [[ $wait_prod -eq 1 ]]; then
+        prod_ok=$(ss -ltn 2>/dev/null | grep -c ":$PROD_PORT ")
+      else
+        prod_ok=1
+      fi
+      if [[ "${dev_ok:-0}" -ge 1 && "${prod_ok:-0}" -ge 1 ]]; then
         echo
         echo "✓ up after ${i}s"
         echo

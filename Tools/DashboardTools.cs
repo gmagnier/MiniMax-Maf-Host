@@ -70,7 +70,8 @@ public class DashboardTools
             $"/api/boards/{boardId}", JsonOpts);
         if (columnId is not null)
         {
-            var col = board.Columns?.FirstOrDefault(c => c.Id == columnId);
+            if (board is null) return $"No board with id {boardId}";
+            var col = board.Columns?.FirstOrDefault(c => string.Equals(c.Id, columnId, StringComparison.Ordinal));
             return col is null
                 ? $"No column with id {columnId} in board {boardId}"
                 : JsonSerializer.Serialize(col, JsonOpts);

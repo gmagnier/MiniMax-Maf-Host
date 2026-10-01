@@ -1,0 +1,49 @@
+<Project>
+
+  <!--
+    Central Package Management (CPM) for MiniMax-Maf-Host.
+    Every NuGet package version is declared HERE. .csproj / .props files
+    reference packages by name only. This keeps version bumps in a single
+    place and makes security/PR review easier.
+
+    To bump a package: change the version below, run `dotnet restore`, and
+    verify the build still passes (analyzer upgrades often introduce new rules
+    that need to be addressed or explicitly suppressed).
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- ===== Microsoft Agent Framework ===== -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Agents.AI" Version="1.22.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="1.22.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting" Version="1.22.0-preview.260918.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.AGUI.AspNetCore" Version="1.22.0-preview.260918.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.22.0" />
+  </ItemGroup>
+
+  <!-- ===== DevUI (preview) ===== -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Agents.AI.DevUI" Version="1.22.0-preview.260918.1" />
+  </ItemGroup>
+
+  <!-- ===== Model Context Protocol ===== -->
+  <ItemGroup>
+    <PackageVersion Include="ModelContextProtocol" Version="0.4.0-preview.1" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="0.4.0-preview.1" />
+  </ItemGroup>
+
+  <!-- ===== Configuration ===== -->
+  <ItemGroup>
+    <PackageVersion Include="DotNetEnv" Version="3.1.1" />
+  </ItemGroup>
+
+  <!-- ===== Static analyzers (Roslyn). =====
+       Analyzers are NOT in Directory.Packages.props on purpose:
+       <GlobalPackageReference> is not covered by Central Package Management
+       (CPM) — analyzers need a Version attribute on the GlobalPackageReference
+       in the csproj. Keep them inline below. -->
+</Project>

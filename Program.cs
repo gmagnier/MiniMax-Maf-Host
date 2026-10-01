@@ -115,14 +115,17 @@ static string WriteChangeFile(
         var target = Path.GetFullPath(Path.Combine(openspecRoot, relativePath));
 
         // Path-traversal guard
-        if (!target.StartsWith(openspecRoot + Path.DirectorySeparatorChar) && target != openspecRoot)
+        if (!target.StartsWith(openspecRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !string.Equals(target, openspecRoot, StringComparison.Ordinal))
+        {
             return $"ERROR: path '{relativePath}' escapes openspec/ — refused";
+        }
 
         // Refuse to write into openspec/specs/<cap>/spec.md (capability specs are source of truth,
         // managed only via openspec CLI or human curation, not by this tool)
         var relToOpenspec = Path.GetRelativePath(openspecRoot, target);
         var parts = relToOpenspec.Split(Path.DirectorySeparatorChar);
-        if (parts.Length >= 2 && parts[0] == "specs")
+        if (parts.Length >= 2 && string.Equals(parts[0], "specs", StringComparison.Ordinal))
             return $"ERROR: writing to openspec/specs/{parts[1]}/spec.md is not allowed via this tool. Capability specs must be edited directly or via the openspec CLI.";
 
         // Audit log
@@ -151,8 +154,11 @@ static string ReadChangeFile(
         var openspecRoot = Path.GetFullPath(Path.Combine(projectRoot, "openspec"));
         var target = Path.GetFullPath(Path.Combine(openspecRoot, relativePath));
 
-        if (!target.StartsWith(openspecRoot + Path.DirectorySeparatorChar) && target != openspecRoot)
+        if (!target.StartsWith(openspecRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !string.Equals(target, openspecRoot, StringComparison.Ordinal))
+        {
             return $"ERROR: path '{relativePath}' escapes openspec/ — refused";
+        }
 
         if (!File.Exists(target)) return $"ERROR: file not found: {relativePath}";
         return File.ReadAllText(target);
@@ -218,4 +224,5 @@ app.MapGet("/", () => Results.Json(new
     },
 }));
 
-app.Run();
+// Top-level statements can't await directly; suppress CS1998 by storing the task.
+_ = app.RunAsync();
