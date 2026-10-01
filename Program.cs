@@ -2,6 +2,7 @@ using System.ClientModel;
 using System.ComponentModel;
 using System.IO;
 using DotNetEnv;
+using MafMiniMaxAgent.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
@@ -41,6 +42,7 @@ const string SpecInstructions =
     "  - Specs MUST use the SHALL/SHOULD/MAY normative vocabulary. " +
     "  - Capability spec files under openspec/specs/<capability>/spec.md are source of truth: prefer the tool, but you may also hand-edit them if needed. " +
     "  - Change metadata files (.openspec.yaml, README.md) and proposals (proposal.md, design.md, tasks.md) may be hand-edited when the openspec CLI doesn't expose the needed action (e.g. setting skip_specs: true in .openspec.yaml). Always run 'validate --changes' after such edits. " +
+    "  - For kanban work (creating or moving tickets, listing boards/columns/tickets), use the mcp_list_boards, mcp_list_tickets, mcp_create_ticket, mcp_move_ticket tools. They delegate to the agent-dashboard MCP server so the UI sees the same state. " +
     "  - Match the user's language. " +
     "  - Keep responses under 30 lines unless quoting.";
 
@@ -172,7 +174,11 @@ builder.AddAIAgent(LeadName, LeadInstructions);
 builder.AddAIAgent(SpecName, SpecInstructions)
        .WithAITool(AIFunctionFactory.Create(OpenSpecCli, name: "open_spec"))
        .WithAITool(AIFunctionFactory.Create(WriteChangeFile, name: "write_change_file"))
-       .WithAITool(AIFunctionFactory.Create(ReadChangeFile, name: "read_change_file"));
+       .WithAITool(AIFunctionFactory.Create(ReadChangeFile, name: "read_change_file"))
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpListBoardsAsync, name: "mcp_list_boards"))
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpListTicketsAsync, name: "mcp_list_tickets"))
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpCreateTicketAsync, name: "mcp_create_ticket"))
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpMoveTicketAsync, name: "mcp_move_ticket"));
 
 // --- DevUI (development only) ---------------------------------------------
 if (builder.Environment.IsDevelopment())
@@ -209,6 +215,11 @@ if (app.Environment.IsDevelopment())
 var leadAgent = app.Services.GetRequiredKeyedService<AIAgent>(LeadName);
 app.MapAGUIServer("/ag-ui", leadAgent);
 
+// maf-spec exposed on its own AG-UI endpoint so the chat UI can pick which
+// agent it talks to. Same protocol, different path.
+var specAgent = app.Services.GetRequiredKeyedService<AIAgent>(SpecName);
+app.MapAGUIServer("/ag-ui/spec", specAgent);
+
 // MCP server at /mcp — picked up from MapMcp() (provided by WithHttpTransport).
 app.MapMcp("/mcp");
 
@@ -221,6 +232,7 @@ app.MapGet("/", () => Results.Json(new
     {
         devui = app.Environment.IsDevelopment() ? "/devui" : null,
         agui = "/ag-ui",
+        aguiSpec = "/ag-ui/spec",
     },
 }));
 
