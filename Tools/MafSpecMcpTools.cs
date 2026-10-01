@@ -80,4 +80,55 @@ public static class MafSpecMcpTools
         return await McpClientHelper.CallToolAsync("move_ticket",
             compact.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value));
     }
+
+    // --- chat persistence ----------------------------------------------------
+
+    /// <summary>
+    /// List chat threads owned by an agent. Useful to pick up an existing
+    /// conversation instead of starting a new one.
+    /// </summary>
+    [SCDesc("List chat threads for an agent in the local dashboard. Returns one line per thread with id, title, last-updated timestamp, archived flag. Use this BEFORE chat_create_thread so you can resume an existing thread.")]
+    public static async Task<string> McpListChatThreadsAsync(
+        [SCDesc("Agent name to filter on, e.g. 'maf-lead' or 'maf-spec'. Required.")] string agent,
+        [SCDesc("If true, includes archived threads. Defaults to true.")] bool includeArchived = true)
+        => await McpClientHelper.CallToolAsync("chat_list_threads", new { agent, includeArchived });
+
+    /// <summary>
+    /// Save a message to an existing chat thread. Use this from maf-spec to
+    /// persist reasoning or extend a thread that was started by the user.
+    /// </summary>
+    [SCDesc("Persist a message to a chat thread in the local dashboard. Use chat_list_threads first to discover the thread id, or chat_create_thread to make one.")]
+    public static async Task<string> McpSaveChatMessageAsync(
+        [SCDesc("UUID of the target thread (from chat_list_threads or chat_create_thread).")] string threadId,
+        [SCDesc("Role of the message: 'user' | 'assistant' | 'system' | 'tool'.")] string role,
+        [SCDesc("Message text. Markdown is fine.")] string content,
+        [SCDesc("Optional agent name to tag on the message (defaults to the thread's agent).")] string? agent = null)
+    {
+        var compact = new Dictionary<string, object?>
+        {
+            ["threadId"] = threadId,
+            ["role"] = role,
+            ["content"] = content,
+            ["agent"] = agent,
+        };
+        return await McpClientHelper.CallToolAsync("chat_save_message",
+            compact.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value));
+    }
+
+    /// <summary>
+    /// Create a new chat thread for an agent. Returns the thread id.
+    /// </summary>
+    [SCDesc("Create a new chat thread for an agent. Returns the thread id, title, and timestamps. Combine with chat_save_message to populate it.")]
+    public static async Task<string> McpCreateChatThreadAsync(
+        [SCDesc("Agent name that will own this thread (e.g. 'maf-lead' or 'maf-spec'). Required.")] string agent,
+        [SCDesc("Optional title. If omitted, the thread starts as 'New conversation' and the dashboard auto-renames it on the first user message.")] string? title = null)
+    {
+        var compact = new Dictionary<string, object?>
+        {
+            ["agent"] = agent,
+            ["title"] = title,
+        };
+        return await McpClientHelper.CallToolAsync("chat_create_thread",
+            compact.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value));
+    }
 }

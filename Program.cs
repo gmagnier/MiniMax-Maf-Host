@@ -178,7 +178,10 @@ builder.AddAIAgent(SpecName, SpecInstructions)
        .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpListBoardsAsync, name: "mcp_list_boards"))
        .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpListTicketsAsync, name: "mcp_list_tickets"))
        .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpCreateTicketAsync, name: "mcp_create_ticket"))
-       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpMoveTicketAsync, name: "mcp_move_ticket"));
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpMoveTicketAsync, name: "mcp_move_ticket"))
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpListChatThreadsAsync, name: "mcp_chat_list_threads"))
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpSaveChatMessageAsync, name: "mcp_chat_save_message"))
+       .WithAITool(AIFunctionFactory.Create(MafSpecMcpTools.McpCreateChatThreadAsync, name: "mcp_chat_create_thread"));
 
 // --- DevUI (development only) ---------------------------------------------
 if (builder.Environment.IsDevelopment())

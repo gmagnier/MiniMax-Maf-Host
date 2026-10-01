@@ -196,4 +196,97 @@ public class DashboardTools
         bool IsDraft);
 
     public record Author(string Login);
+
+    // ----- Chat persistence --------------------------------------------------
+
+    /// <summary>
+    /// List chat threads for an agent. Lets an agent find its previous
+    /// conversations (e.g. to resume a long-running spec discussion).
+    /// </summary>
+    [McpServerTool(Name = "chat_list_threads"), SCDesc("List chat threads for an agent in the local dashboard. Returns thread id, title, last-updated timestamp, and archived flag. Use this to discover existing conversations before creating a new one.")]
+    public async Task<string> ChatListThreads(
+        [SCDesc("Agent name to filter on, e.g. 'maf-lead' or 'maf-spec'. Required.")] string agent,
+        [SCDesc("If true, includes archived threads in the result. Defaults to false.")] bool includeArchived = true)
+    {
+        if (string.IsNullOrWhiteSpace(agent))
+            return "ERROR: agent is required";
+
+        var qs = $"?agent={Uri.EscapeDataString(agent)}";
+        if (includeArchived) qs += "&includeArchived=true";
+
+        var threads = await _http.GetFromJsonAsync<List<ChatThreadSummary>>($"/api/chat/threads{qs}", JsonOpts);
+        return JsonSerializer.Serialize(threads, JsonOpts);
+    }
+
+    /// <summary>
+    /// Save a chat message to a thread. Use this from a MAF agent to persist
+    /// its own reasoning or to extend a thread it started earlier. The
+    /// dashboard auto-renames the thread on the first user message if the
+    /// title is still the default placeholder.
+    /// </summary>
+    [McpServerTool(Name = "chat_save_message"), SCDesc("Persist a message to a chat thread in the local dashboard. Use chat_list_threads first to discover a thread id, or chat_create_thread to make a new one.")]
+    public async Task<string> ChatSaveMessage(
+        [SCDesc("UUID of the target thread. Get it from chat_list_threads or chat_create_thread.")] string threadId,
+        [SCDesc("Role of the message: 'user' | 'assistant' | 'system' | 'tool'.")] string role,
+        [SCDesc("Message text. Markdown is fine.")] string content,
+        [SCDesc("Optional agent name to tag on the message (defaults to the thread's agent).")] string? agent = null)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+            return "ERROR: threadId is required";
+        if (string.IsNullOrWhiteSpace(role) || role is not ("user" or "assistant" or "system" or "tool"))
+            return $"ERROR: role must be one of user|assistant|system|tool, got '{role}'";
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["threadId"] = threadId,
+            ["role"] = role,
+            ["content"] = content,
+        };
+        if (!string.IsNullOrWhiteSpace(agent))
+            payload["agent"] = agent;
+
+        using var resp = await _http.PostAsJsonAsync("/api/chat/messages", payload, JsonOpts);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await resp.Content.ReadAsStringAsync();
+            return $"ERROR: dashboard returned HTTP {(int)resp.StatusCode}: {err[..Math.Min(300, err.Length)]}";
+        }
+        var body = await resp.Content.ReadAsStringAsync();
+        return body; // { "id": "<uuid>", "ok": true }
+    }
+
+    /// <summary>
+    /// Create a new chat thread. Use this when starting a fresh conversation
+    /// from a MAF agent (or to seed a thread before saving messages to it).
+    /// </summary>
+    [McpServerTool(Name = "chat_create_thread"), SCDesc("Create a new chat thread for an agent. Returns the thread id, title, and timestamps. Combine with chat_save_message to populate it.")]
+    public async Task<string> ChatCreateThread(
+        [SCDesc("Agent name that will own this thread (e.g. 'maf-lead' or 'maf-spec'). Required.")] string agent,
+        [SCDesc("Optional title. If omitted, the thread starts as 'New conversation' and the dashboard auto-renames it on the first user message.")] string? title = null)
+    {
+        if (string.IsNullOrWhiteSpace(agent))
+            return "ERROR: agent is required";
+
+        var payload = new Dictionary<string, object?> { ["agent"] = agent };
+        if (!string.IsNullOrWhiteSpace(title))
+            payload["title"] = title;
+
+        using var resp = await _http.PostAsJsonAsync("/api/chat/threads", payload, JsonOpts);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await resp.Content.ReadAsStringAsync();
+            return $"ERROR: dashboard returned HTTP {(int)resp.StatusCode}: {err[..Math.Min(300, err.Length)]}";
+        }
+        var body = await resp.Content.ReadAsStringAsync();
+        return body;
+    }
+
+    public record ChatThreadSummary(
+        string Id,
+        string Agent,
+        string Title,
+        [property: JsonPropertyName("created_at")] string CreatedAt,
+        [property: JsonPropertyName("updated_at")] string UpdatedAt,
+        int Archived,
+        string? Metadata);
 }
