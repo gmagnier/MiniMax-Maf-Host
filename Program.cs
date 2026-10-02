@@ -261,6 +261,38 @@ if (app.Environment.IsDevelopment())
     app.MapDevUI();
 }
 
+// MCP server at /mcp — picked up from MapMcp() (provided by WithHttpTransport).
+app.MapMcp("/mcp");
+
+// X-MAF-Workdir middleware: when the webhook handler sets this header
+// (because it cloned the target repo into a workspace), the maf-coder
+// tools must resolve file paths there instead of the MAF host cwd.
+// MafCoderWorkdir is AsyncLocal so concurrent AG-UI requests each see
+// their own override without cross-contamination. Registered FIRST so
+// it runs before any Map* endpoint is matched.
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Headers.TryGetValue("X-MAF-Workdir", out var values))
+    {
+        var workdir = values.ToString();
+        if (!string.IsNullOrWhiteSpace(workdir))
+        {
+            try
+            {
+                MafMiniMaxAgent.Tools.MafCoderWorkdir.Set(workdir);
+            }
+            catch (Exception ex)
+            {
+                // Best-effort log; don't block the request on a log failure.
+#pragma warning disable S6966 // Async logging not needed here.
+                System.Console.Out.WriteLine($"[maf] invalid X-MAF-Workdir '{workdir}': {ex.Message}");
+#pragma warning restore S6966
+            }
+        }
+    }
+    await next();
+});
+
 // maf-lead exposed via AG-UI for interactive testing
 var leadAgent = app.Services.GetRequiredKeyedService<AIAgent>(LeadName);
 app.MapAGUIServer("/ag-ui", leadAgent);
@@ -273,9 +305,6 @@ app.MapAGUIServer("/ag-ui/spec", specAgent);
 // maf-coder: same idea, but coder is mostly driven from DevUI for now.
 var coderAgent = app.Services.GetRequiredKeyedService<AIAgent>(CoderName);
 app.MapAGUIServer("/ag-ui/coder", coderAgent);
-
-// MCP server at /mcp — picked up from MapMcp() (provided by WithHttpTransport).
-app.MapMcp("/mcp");
 
 app.MapGet("/", () => Results.Json(new
 {

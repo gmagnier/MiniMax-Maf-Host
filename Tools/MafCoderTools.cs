@@ -45,7 +45,7 @@ public static class MafCoderTools
         if (relativePath.Contains("..", StringComparison.Ordinal))
             return (false, null, $"ERROR: '{relativePath}' contains '..' — refused");
 
-        var cwd = Directory.GetCurrentDirectory();
+        var cwd = MafCoderWorkdir.Current();
         var target = Path.GetFullPath(Path.Combine(cwd, relativePath.Replace('/', Path.DirectorySeparatorChar)));
 
         // Top-level allowlist
@@ -290,12 +290,13 @@ public static class MafCoderTools
 
     private static string ResolveWorkdir(string? cwdRelative)
     {
+        var fallback = MafCoderWorkdir.Current();
         if (string.IsNullOrWhiteSpace(cwdRelative))
-            return Directory.GetCurrentDirectory();
+            return fallback;
 
         var (ok, target, error) = ResolveAndCheck(cwdRelative);
         if (!ok) return error!;
-        return Directory.Exists(target) ? target : Directory.GetCurrentDirectory();
+        return Directory.Exists(target) ? target : fallback;
     }
 
     private static string RunAndCapture(string command, string workdir, int timeoutSeconds)
